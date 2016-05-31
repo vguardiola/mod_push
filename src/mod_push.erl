@@ -142,7 +142,7 @@
                             secret :: binary(),
                             app_id :: binary(),
                             backend_id :: integer(),
-                            timestamp = now() :: erlang:timestamp()}).
+                            timestamp = p1_time_compat:timestamp() :: erlang:timestamp()}).
 
 %% mnesia table
 -record(push_backend,
@@ -157,7 +157,7 @@
 %% mnesia table
 -record(push_stored_packet, {receiver :: ljid(),
                              sender :: jid(),
-                             timestamp = now() :: erlang:timestamp(),
+                             timestamp = p1_time_compat:timestamp() :: erlang:timestamp(),
                              packet :: xmlelement()}).
 
 -type auth_data() :: #auth_data{}.
@@ -243,7 +243,7 @@ register_client(#jid{luser = LUser,
                                                  secret = Secret,
                                                  app_id = AppId,
                                                  backend_id = BackendId,
-                                                 timestamp = now()}
+                                                 timestamp = p1_time_compat:timestamp()}
                 end,
                 mnesia:write(Registration),
                 {PubsubHost, Registration#push_registration.node,
@@ -338,7 +338,7 @@ unregister_client(UserJid, DeviceId, Timestamp, Nodes) ->
                                 [#xmlel{
                                     name = <<"affiliation">>,
                                     attrs = [{<<"jid">>,
-                                              jlib:jid_to_string(UserBareJid)},
+                                              jid:to_string(UserBareJid)},
                                              {<<"affiliation">>,
                                               <<"none">>}]}]}]},
                         PubsubMessage =
@@ -654,7 +654,7 @@ list_registrations(#jid{luser = LUser, lserver = LServer}) ->
 on_store_stanza(RerouteFlag, To, Stanza) ->
     ?DEBUG("++++++++++++ Stored Stanza for ~p: ~p",
            [To, Stanza]),
-    F = fun() -> dispatch([{now(), Stanza}], To, false) end,
+    F = fun() -> dispatch([{p1_time_compat:timestamp(), Stanza}], To, false) end,
     case mnesia:transaction(F) of
         {atomic, not_subscribed} -> RerouteFlag;
         
@@ -710,7 +710,7 @@ dispatch(Stanzas, UserJid, SetPending) ->
                         none -> WriteUser(OldPayload);
 
                         {Payload, StanzasToStore} ->
-                            Receiver = jlib:jid_tolower(UserJid),
+                            Receiver = jid:tolower(UserJid),
                             lists:foreach(
                                 fun({Timestamp, Stanza}) ->
                                     StoredPacket =
@@ -899,13 +899,13 @@ on_unset_presence(User, Server, Resource, _Status) ->
 
 resend_packets(Jid) ->
     F = fun() ->
-        LJid = jlib:jid_tolower(Jid),
+        LJid = jid:tolower(Jid),
         Packets = mnesia:read({push_stored_packet, LJid}),
-        ?DEBUG("+++++++ resending packets to user ~p", [jlib:jid_to_string(LJid)]),
+        ?DEBUG("+++++++ resending packets to user ~p", [jid:to_string(LJid)]),
         lists:foreach(
             fun(#push_stored_packet{timestamp = T, packet = P}) ->
 	            FromS = proplists:get_value(<<"from">>, P#xmlel.attrs),
-                From = jlib:string_to_jid(FromS),
+                From = jid:from_string(FromS),
                 StampedPacket = jlib:add_delay_info(P, Jid#jid.lserver, T),
                 ejabberd_sm ! {route, From, Jid, StampedPacket}
             end,
@@ -974,7 +974,7 @@ on_affiliation_removal(#xmlel{name = <<"message">>, children = Children} = Stanz
         case proplists:get_value(<<"affiliation">>, Attrs) of
             <<"none">> ->
                 case proplists:get_value(<<"jid">>, Attrs) of
-                    J when is_binary(J) -> jlib:string_to_jid(J);
+                    J when is_binary(J) -> jid:from_string(J);
                     _ -> error
                 end;
             undefined -> F(T)
@@ -985,13 +985,13 @@ on_affiliation_removal(#xmlel{name = <<"message">>, children = Children} = Stanz
     ErrMsg =
     fun() ->
         ?INFO_MSG("Received invalid affiliation removal notification from ~p",
-                  [jlib:jid_to_string(From)])
+                  [jid:to_string(From)])
     end,
     case FindNodeAffiliations(Children) of
         not_found -> ok;
         error -> ErrMsg();
         {Node, Affiliations} ->
-            BareUserJid = jlib:jid_remove_resource(jlib:jid_tolower(User)),
+            BareUserJid = jid:remove_resource(jid:tolower(User)),
             case FindJid(Affiliations) of
                 not_found -> ok;
                 BareUserJid -> disable(BareUserJid, From, Node, true);
@@ -1045,7 +1045,7 @@ on_resume_session(#jid{luser = LUser, lserver = LServer, lresource = LResource}
                 NewSubscrs = set_pending(LResource, false, Subscrs),
                 mnesia:write(PushUser#push_user{payload = [],
                                                 subscriptions = NewSubscrs}),
-                mnesia:delete({push_stored_packet, jlib:jid_tolower(User)}) 
+                mnesia:delete({push_stored_packet, jid:tolower(User)})
         end
     end,
     mnesia:transaction(F).
@@ -1088,12 +1088,12 @@ incoming_notification(_HookAcc, Node, [#xmlel{name = <<"notification">>,
                             [{{single, <<"message-count">>},
                               fun erlang:binary_to_integer/1},
                              {{single, <<"last-message-sender">>},
-                              fun jlib:string_to_jid/1},
+                              fun jid:from_string/1},
                              {single, <<"last-message-body">>},
                              {{single, <<"pending-subscription-count">>},
                               fun erlang:binary_to_integer/1},
                              {{single, <<"last-subscription-sender">>},
-                              fun jlib:string_to_jid/1}]),
+                              fun jid:from_string/1}]),
                         case ParseResult of
                             {result,
                              [MsgCount, MsgSender, MsgBody, SubscrCount,
@@ -1106,7 +1106,7 @@ incoming_notification(_HookAcc, Node, [#xmlel{name = <<"notification">>,
                                                 Acc;
                                             #jid{} ->
                                                 JidStr =
-                                                jlib:jid_to_string(Value),
+                                                jid:to_string(Value),
                                                 [{Key, JidStr}|Acc];
                                             _ ->
                                                 [{Key, Value}|Acc]
@@ -1525,7 +1525,7 @@ process_iq(From, _To, #iq{type = Type, sub_el = SubEl} = IQ) ->
     case JidB of
         undefined -> IQ#iq{type = error, sub_el = [SubEl, ?ERR_NOT_ALLOWED]};
         _ ->
-            case jlib:string_to_jid(JidB) of
+            case jid:from_string(JidB) of
                 error ->
                     IQ#iq{type = error, sub_el = [?ERR_JID_MALFORMED, SubEl]};
                 
@@ -1560,7 +1560,7 @@ process_iq(From, _To, #iq{type = Type, sub_el = SubEl} = IQ) ->
 
                         _ ->
                             ?DEBUG("+++++ Received Invalid push iq from ~p",
-                                   [jlib:jid_to_string(From)]),
+                                   [jid:to_string(From)]),
                             IQ#iq{type = error,
                                   sub_el = [?ERR_NOT_ALLOWED, SubEl]}
                     end
@@ -1680,9 +1680,9 @@ on_disco_reg_identity(Acc, _From, _To, _Node, _Lang) ->
     Acc.
                
 on_disco_sm_identity(Acc, From, To, <<"">>, _Lang) ->
-    FromL = jlib:jid_tolower(From),
-    ToL = jlib:jid_tolower(To),
-    case jlib:jid_remove_resource(FromL) of
+    FromL = jid:tolower(From),
+    ToL = jid:tolower(To),
+    case jid:remove_resource(FromL) of
         ToL ->
             F = fun() ->
                 case mnesia:read({push_user, {To#jid.luser, To#jid.lserver}}) of
@@ -2020,9 +2020,9 @@ get_backend_opts(RawOptsList) ->
     lists:map(
         fun(Opts) ->
             RegHostJid =
-            jlib:string_to_jid(proplists:get_value(register_host, Opts)),
+            jid:from_string(proplists:get_value(register_host, Opts)),
             PubsubHostJid =
-            jlib:string_to_jid(proplists:get_value(pubsub_host, Opts)),
+            jid:from_string(proplists:get_value(pubsub_host, Opts)),
             RawType = proplists:get_value(type, Opts),
             Type =
             case lists:member(RawType, [apns, gcm, mozilla, ubuntu, wns]) of

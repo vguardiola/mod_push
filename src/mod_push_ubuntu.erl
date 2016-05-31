@@ -136,7 +136,7 @@ code_change(_OldVsn, State, _Extra) -> {ok, State}.
 %-------------------------------------------------------------------------
 
 expiry_time() ->
-    Now = now(),
+    Now = p1_time_compat:timestamp(),
     {_, Seconds, _} = Now,
     Time = setelement(2, Now, Seconds + ?EXPIRY_TIME),
     jlib:now_to_utc_string(Time).

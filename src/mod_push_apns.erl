@@ -248,7 +248,7 @@ handle_info(send, #state{certfile = CertFile,
 
                         ok ->
                             ?INFO_MSG("sending to APNS successful", []),
-                            Timestamp = erlang:now(),
+                            Timestamp = p1_time_compat:timestamp(),
                             NewPendingTimer =
                             erlang:send_after(?PENDING_INTERVAL, self(),
                                               {pending_timeout, Timestamp}),
@@ -365,6 +365,6 @@ pending_to_retry(PendingList, RetryList) ->
 
 restart_retry_timer(OldTimer) ->
     erlang:cancel_timer(OldTimer),
-    Timestamp = erlang:now(),
+    Timestamp = p1_time_compat:timestamp(),
     NewTimer = erlang:send_after(?RETRY_INTERVAL, self(), {retry, Timestamp}),
     {NewTimer, Timestamp}.
